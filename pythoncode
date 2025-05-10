@@ -1,0 +1,152 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import mysql.connector
+
+# Connect to MySQL
+conn = mysql.connector.connect(
+    host="localhost",
+    user="root",
+    password="yourpassword",  # change this
+    database="shop_db"
+)
+cursor = conn.cursor()
+
+root = tk.Tk()
+root.title("Shop Management System")
+root.geometry("1000x600")
+root.configure(bg="#f0f0f0")
+
+# ================= Functions ================= #
+def refresh_products():
+    for row in product_tree.get_children():
+        product_tree.delete(row)
+    cursor.execute("SELECT * FROM products")
+    for row in cursor.fetchall():
+        product_tree.insert("", tk.END, values=row)
+
+def add_product():
+    try:
+        name = entry_name.get()
+        price = float(entry_price.get())
+        quantity = int(entry_quantity.get())
+        cursor.execute("INSERT INTO products (name, price, quantity) VALUES (%s, %s, %s)", (name, price, quantity))
+        conn.commit()
+        refresh_products()
+        messagebox.showinfo("Success", "Product added.")
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+def delete_product():
+    selected = product_tree.focus()
+    if not selected:
+        messagebox.showwarning("No selection", "Select a product to delete.")
+        return
+    product_id = product_tree.item(selected)['values'][0]
+    cursor.execute("DELETE FROM products WHERE id = %s", (product_id,))
+    conn.commit()
+    refresh_products()
+    messagebox.showinfo("Deleted", "Product removed.")
+
+def make_sale():
+    try:
+        prod_id = int(sale_prod_id.get())
+        cust_name = sale_cust_name.get()
+        cust_contact = sale_cust_contact.get()
+        qty = int(sale_qty.get())
+
+        cursor.execute("SELECT price, quantity FROM products WHERE id=%s", (prod_id,))
+        prod = cursor.fetchone()
+        if not prod:
+            messagebox.showerror("Error", "Product not found.")
+            return
+
+        price, stock = prod
+        if qty > stock:
+            messagebox.showwarning("Stock Error", "Not enough stock.")
+            return
+
+        # Add customer
+        cursor.execute("INSERT INTO customers (name, contact) VALUES (%s, %s)", (cust_name, cust_contact))
+        customer_id = cursor.lastrowid
+
+        # Make sale
+        total = price * qty
+        cursor.execute("INSERT INTO sales (product_id, customer_id, quantity_sold, total_price) VALUES (%s, %s, %s, %s)", 
+                       (prod_id, customer_id, qty, total))
+        cursor.execute("UPDATE products SET quantity = quantity - %s WHERE id = %s", (qty, prod_id))
+        conn.commit()
+        refresh_products()
+        messagebox.showinfo("Sale", f"Sale complete. Total: ₹{total}")
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+def view_sales_report():
+    report = tk.Toplevel(root)
+    report.title("Sales Report")
+    report.geometry("700x400")
+    tree = ttk.Treeview(report, columns=("ID", "Prod ID", "Cust ID", "Qty", "Total", "Date"), show="headings")
+    for col in tree["columns"]:
+        tree.heading(col, text=col)
+    tree.pack(fill=tk.BOTH, expand=True)
+    cursor.execute("SELECT * FROM sales")
+    for row in cursor.fetchall():
+        tree.insert("", tk.END, values=row)
+
+# ================= GUI Layout ================= #
+# Frame: Product Management
+frame1 = tk.LabelFrame(root, text="Add Product", padx=10, pady=10, bg="#e6f7ff")
+frame1.place(x=10, y=10, width=300, height=200)
+
+tk.Label(frame1, text="Name:", bg="#e6f7ff").grid(row=0, column=0, sticky="w")
+entry_name = tk.Entry(frame1)
+entry_name.grid(row=0, column=1)
+
+tk.Label(frame1, text="Price:", bg="#e6f7ff").grid(row=1, column=0, sticky="w")
+entry_price = tk.Entry(frame1)
+entry_price.grid(row=1, column=1)
+
+tk.Label(frame1, text="Quantity:", bg="#e6f7ff").grid(row=2, column=0, sticky="w")
+entry_quantity = tk.Entry(frame1)
+entry_quantity.grid(row=2, column=1)
+
+tk.Button(frame1, text="Add", command=add_product, bg="#00bfff", fg="white").grid(row=3, column=0, pady=10)
+tk.Button(frame1, text="Delete", command=delete_product, bg="#ff4d4d", fg="white").grid(row=3, column=1)
+
+# Frame: Product List
+frame2 = tk.LabelFrame(root, text="Inventory", bg="#e6ffe6")
+frame2.place(x=320, y=10, width=660, height=300)
+
+product_tree = ttk.Treeview(frame2, columns=("ID", "Name", "Price", "Qty"), show="headings")
+for col in product_tree["columns"]:
+    product_tree.heading(col, text=col)
+product_tree.pack(fill=tk.BOTH, expand=True)
+
+# Frame: Sale
+frame3 = tk.LabelFrame(root, text="Make Sale", padx=10, pady=10, bg="#fff5e6")
+frame3.place(x=10, y=220, width=970, height=180)
+
+tk.Label(frame3, text="Product ID:", bg="#fff5e6").grid(row=0, column=0)
+sale_prod_id = tk.Entry(frame3)
+sale_prod_id.grid(row=0, column=1)
+
+tk.Label(frame3, text="Customer Name:", bg="#fff5e6").grid(row=1, column=0)
+sale_cust_name = tk.Entry(frame3)
+sale_cust_name.grid(row=1, column=1)
+
+tk.Label(frame3, text="Customer Contact:", bg="#fff5e6").grid(row=2, column=0)
+sale_cust_contact = tk.Entry(frame3)
+sale_cust_contact.grid(row=2, column=1)
+
+tk.Label(frame3, text="Quantity:", bg="#fff5e6").grid(row=3, column=0)
+sale_qty = tk.Entry(frame3)
+sale_qty.grid(row=3, column=1)
+
+tk.Button(frame3, text="Make Sale", command=make_sale, bg="#ffa500", fg="white").grid(row=4, columnspan=2, pady=10)
+
+# Button: Report and Exit
+tk.Button(root, text="View Sales Report", command=view_sales_report, bg="#006600", fg="white").place(x=10, y=420, width=200, height=40)
+tk.Button(root, text="Exit", command=root.destroy, bg="#cc0000", fg="white").place(x=220, y=420, width=200, height=40)
+
+# Init
+refresh_products()
+root.mainloop()
